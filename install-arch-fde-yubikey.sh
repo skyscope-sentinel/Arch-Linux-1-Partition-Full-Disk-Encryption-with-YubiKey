@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Script metadata
-readonly SCRIPT_VERSION="5.0"
+readonly SCRIPT_VERSION="5.1"
 readonly SCRIPT_AUTHOR="Casey J Topojani"
 readonly SCRIPT_ORG="Skyscope Sentinel Intelligence"
 readonly SCRIPT_ABN="11287984779"
@@ -15,10 +15,11 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Progress tracking
-TOTAL_STEPS=31  # Adjusted for new system update step
+TOTAL_STEPS=31  # Adjusted for system update step
 CURRENT_STEP=0
 
 # Log file
@@ -45,16 +46,17 @@ center_text() {
     printf "%${padding}s%s%${padding}s\n" "" "$text" ""
 }
 
-# Function to display progress bar
-show_progress() {
-    local percentage=$(( (CURRENT_STEP * 100) / TOTAL_STEPS ))
-    local bar_width=50
-    local filled=$(( (percentage * bar_width) / 100 ))
-    local empty=$(( bar_width - filled ))
-    printf "\r${GREEN}["
-    printf "%${filled}s" | tr ' ' '#'
-    printf "%${empty}s" | tr ' ' '-'
-    printf "] ${percentage}%%${NC}"
+# Function to display header
+display_header() {
+    clear
+    echo -e "${YELLOW}"
+    center_text "========================================"
+    center_text "$SCRIPT_ORG"
+    center_text "ABN $SCRIPT_ABN"
+    center_text "Developer: $SCRIPT_AUTHOR"
+    center_text "Date: $SCRIPT_DATE"
+    center_text "========================================"
+    echo -e "${NC}"
 }
 
 # Function to log and display messages
@@ -73,35 +75,136 @@ check_integrity() {
     fi
 }
 
-# Function to display header
-display_header() {
-    clear
-    echo -e "${YELLOW}"
-    center_text "========================================"
-    center_text "$SCRIPT_ORG"
-    center_text "ABN $SCRIPT_ABN"
-    center_text "Developer: $SCRIPT_AUTHOR"
-    center_text "Date: $SCRIPT_DATE"
-    center_text "========================================"
-    echo -e "${NC}"
+# Function to display a progress bar
+show_progress_bar() {
+    local percentage=$1
+    local bar_width=50
+    local filled=$(( (percentage * bar_width) / 100 ))
+    local empty=$(( bar_width - filled ))
+    printf "\r${CYAN}["
+    printf "%${filled}s" | tr ' ' '#'
+    printf "%${empty}s" | tr ' ' '-'
+    printf "] ${percentage}%%${NC}"
+}
+
+# Function to simulate progress for a command (for steps without native progress)
+simulate_progress() {
+    local duration=$1  # Estimated duration in seconds
+    local start_time=$(date +%s)
+    local end_time=$(( start_time + duration ))
+    local percentage=0
+
+    while [ $percentage -lt 100 ]; do
+        current_time=$(date +%s)
+        elapsed=$(( current_time - start_time ))
+        percentage=$(( (elapsed * 100) / duration ))
+        [ $percentage -gt 100 ] && percentage=100
+        show_progress_bar $percentage
+        sleep 0.1
+    done
+    echo
+}
+
+# Function to display verbose output and progress
+execute_step_with_progress() {
+    local step_name="$1"
+    local command="$2"
+    local estimated_duration=$3  # Estimated duration in seconds for progress simulation
+    ((CURRENT_STEP++))
+
+    log_message "Starting: $step_name"
+    echo -e "${GREEN}Step $CURRENT_STEP/$TOTAL_STEPS: $step_name${NC}"
+    echo -e "${CYAN}Details:${NC} Executing command: $command"
+
+    # Run the command in the background and capture its PID
+    eval "$command" >> "$LOG_FILE" 2>&1 &
+    local cmd_pid=$!
+
+    # Simulate progress while the command runs
+    simulate_progress $estimated_duration &
+
+    # Wait for the command to finish
+    wait $cmd_pid
+    local cmd_status=$?
+
+    # Ensure the progress bar reaches 100%
+    show_progress_bar 100
+    echo
+
+    # Update overall progress
+    local overall_percentage=$(( (CURRENT_STEP * 100) / TOTAL_STEPS ))
+    echo -e "${YELLOW}Overall Progress:${NC}"
+    show_progress_bar $overall_percentage
+    echo
+
+    if [ $cmd_status -eq 0 ]; then
+        log_message "${GREEN}Completed: $step_name${NC}"
+    else
+        log_message "${RED}Failed: $step_name. Check $LOG_FILE for details.${NC}"
+        exit 1
+    fi
+}
+
+# Function to select disk using whiptail
+select_disk() {
+    # Check if whiptail is installed
+    if ! command -v whiptail >/dev/null 2>&1; then
+        log_message "${RED}Error: whiptail not found. Please install newt (e.g., pacman -S newt) and try again.${NC}"
+        exit 1
+    fi
+
+    # Get list of disks
+    local disk_list=()
+    for disk in /dev/nvme*n* /dev/sd*; do
+        if [ -b "$disk" ]; then
+            # Skip partitions (e.g., /dev/nvme0n1p1)
+            if [[ ! "$disk" =~ [0-9]$ ]]; then
+                size=$(blockdev --getsize64 "$disk")
+                size_gb=$(( size / 1000000000 ))
+                disk_list+=("$disk" "$size_gb GB")
+            fi
+        fi
+    done
+
+    if [ ${#disk_list[@]} -eq 0 ]; then
+        log_message "${RED}Error: No disks found. Aborting.${NC}"
+        exit 1
+    fi
+
+    # Display disk selection menu
+    SELECTED_DISK=$(whiptail --title "Select Disk for Installation" --menu "Choose the disk to install Arch Linux on:" 15 60 5 "${disk_list[@]}" 3>&1 1>&2 2>&3)
+
+    if [ $? -ne 0 ] || [ -z "$SELECTED_DISK" ]; then
+        log_message "${RED}Error: Disk selection cancelled. Aborting.${NC}"
+        exit 1
+    fi
+
+    log_message "Selected disk: $SELECTED_DISK (Size: $size_gb GB)"
 }
 
 # Function to prompt for LUKS passphrase securely
 prompt_passphrase() {
+    echo -e "${YELLOW}Setting up disk encryption${NC}"
+    echo -e "${CYAN}Please enter a strong passphrase for LUKS encryption.${NC}"
+    echo -e "${CYAN}This will be used to unlock your disk at boot.${NC}"
     local passphrase
     local passphrase_confirm
     while true; do
-        echo -n "Enter LUKS passphrase: "
-        read -s passphrase
-        echo
-        echo -n "Confirm LUKS passphrase: "
-        read -s passphrase_confirm
-        echo
+        passphrase=$(whiptail --passwordbox "Enter LUKS passphrase:" 10 50 3>&1 1>&2 2>&3)
+        if [ $? -ne 0 ]; then
+            log_message "${RED}Passphrase entry cancelled. Aborting.${NC}"
+            exit 1
+        fi
+        passphrase_confirm=$(whiptail --passwordbox "Confirm LUKS passphrase:" 10 50 3>&1 1>&2 2>&3)
+        if [ $? -ne 0 ]; then
+            log_message "${RED}Passphrase confirmation cancelled. Aborting.${NC}"
+            exit 1
+        fi
         if [ "$passphrase" = "$passphrase_confirm" ]; then
             echo "$passphrase"
             return
         else
-            echo "Passphrases do not match. Please try again."
+            whiptail --msgbox "Passphrases do not match. Please try again." 10 50
         fi
     done
 }
@@ -129,13 +232,23 @@ setup_kernel() {
 # Function to set up bootloader password
 setup_bootloader_password() {
     log_message "Setting up bootloader password with post-quantum encryption..."
-    echo -n "Enter a bootloader password: "
-    read -s password
-    echo
-    echo -n "Confirm bootloader password: "
-    read -s password_confirm
-    echo
-    [[ "$password" != "$password_confirm" ]] && { log_message "${RED}Passwords do not match! Aborting.${NC}"; exit 1; }
+    local password
+    local password_confirm
+    password=$(whiptail --passwordbox "Enter bootloader password:" 10 50 3>&1 1>&2 2>&3)
+    if [ $? -ne 0 ]; then
+        log_message "${RED}Bootloader password entry cancelled. Aborting.${NC}"
+        exit 1
+    fi
+    password_confirm=$(whiptail --passwordbox "Confirm bootloader password:" 10 50 3>&1 1>&2 2>&3)
+    if [ $? -ne 0 ]; then
+        log_message "${RED}Bootloader password confirmation cancelled. Aborting.${NC}"
+        exit 1
+    fi
+    if [[ "$password" != "$password_confirm" ]]; then
+        whiptail --msgbox "Bootloader passwords do not match! Aborting." 10 50
+        log_message "${RED}Bootloader passwords do not match! Aborting.${NC}"
+        exit 1
+    fi
     local password_hash=$(echo -n "$password" | argon2id -t 64 -m 19 -p 8 -l 64 -s "somesalt" | awk '{print $1}')
     arch-chroot /mnt bash -c "openssl genpkey -algorithm ml-kem-768 -out ${BOOTLOADER_CHUNK_KEY}.priv && openssl pkey -in ${BOOTLOADER_CHUNK_KEY}.priv -pubout -out ${BOOTLOADER_CHUNK_KEY}.pub"
     local chunk_size=$(( ${#password_hash} / BOOTLOADER_PASSWORD_CHUNKS ))
@@ -657,60 +770,111 @@ EOF
     arch-chroot /mnt systemctl enable skyscope-sentinel-unauthorized-mod-detection-agent skyscope-sentinel-config-protect-agent skyscope-sentinel-security-detect-protect-agent skyscope-sentinel-prevent-remote-unprivileged-access-agent
 }
 
-# Function to execute a step with progress and logging
-execute_step() {
-    local step_name="$1"
-    local command="$2"
-    ((CURRENT_STEP++))
-    log_message "Starting: $step_name"
-    eval "$command" >> "$LOG_FILE" 2>&1
-    [ $? -eq 0 ] && log_message "${GREEN}Completed: $step_name${NC}" || { log_message "${RED}Failed: $step_name. Check $LOG_FILE for details.${NC}"; exit 1; }
-    show_progress
-}
-
 # Main installation process
 main() {
     check_integrity
     echo "Arch Linux Installation Log" > "$LOG_FILE"
     log_message "Starting installation process..."
-    [ ! -b /dev/nvme1n1 ] && { log_message "${RED}Error: /dev/nvme1n1 does not exist. Aborting.${NC}"; exit 1; }
-    DISK_SIZE=$(blockdev --getsize64 /dev/nvme1n1)
-    [ "$DISK_SIZE" -lt 900000000000 ] || [ "$DISK_SIZE" -gt 1100000000000 ] && { log_message "${RED}Error: /dev/nvme1n1 is not approximately 1TB. Aborting.${NC}"; exit 1; }
-    SELECTED_DISK="/dev/nvme1n1"
-    log_message "Using disk: $SELECTED_DISK (Size: $((DISK_SIZE / 1000000000)) GB)"
+
+    # Display header
+    display_header
+
+    # Select disk
+    select_disk
+
+    # Prompt for LUKS passphrase
     LUKS_PASSPHRASE=$(prompt_passphrase)
     PASSFILE=$(mktemp)
     chmod 600 "$PASSFILE"
     echo "$LUKS_PASSPHRASE" > "$PASSFILE"
-    execute_step "Partitioning $SELECTED_DISK" "echo -e 'g\nn\n\n\n\n8300\nw' | fdisk $SELECTED_DISK"
-    execute_step "Encrypting $SELECTED_DISK with LUKS2" "cryptsetup --type luks2 --cipher aes-xts-plain64 --key-size 512 --hash sha512 --pbkdf argon2id --iter-time 5000 --key-file \"$PASSFILE\" luksFormat ${SELECTED_DISK}1 && cryptsetup --key-file \"$PASSFILE\" luksOpen ${SELECTED_DISK}1 cryptroot"
-    execute_step "Configuring LVM" "pvcreate /dev/mapper/cryptroot && vgcreate vg0 /dev/mapper/cryptroot && lvcreate -n root -L 50G vg0 && lvcreate -n home -l 80%FREE vg0 && lvcreate -n swap -L 16G vg0"
-    execute_step "Formatting file systems" "mkfs.btrfs /dev/mapper/vg0-root && mkfs.btrfs /dev/mapper/vg0-home && mkswap /dev/mapper/vg0-swap && swapon /dev/mapper/vg0-swap"
-    execute_step "Mounting file systems" "mount /dev/mapper/vg0-root /mnt && btrfs subvolume create /mnt/boot && btrfs subvolume create /mnt/home && mount /dev/mapper/vg0-home /mnt/home"
-    execute_step "Installing base system" "pacstrap /mnt base linux linux-firmware intel-ucode sbsign cryptsetup lvm2 btrfs-progs"
-    execute_step "Updating system" "arch-chroot /mnt pacman -Syu --noconfirm"
-    execute_step "Generating fstab" "genfstab -U /mnt >> /mnt/etc/fstab"
-    execute_step "Configuring system" "arch-chroot /mnt bash -c \"echo 'archsecure' > /etc/hostname && echo '127.0.0.1 localhost' >> /etc/hosts && echo '::1 localhost' >> /etc/hosts && echo '127.0.1.1 archsecure.localdomain archsecure' >> /etc/hosts\""
-    execute_step "Installing additional tools" "arch-chroot /mnt pacman -S --noconfirm yubikey-manager nano iptables"
-    execute_step "Validating YubiKey" "validate_yubikey"
-    execute_step "Enrolling YubiKey" "cp \"$PASSFILE\" /mnt/tmp/luks_passphrase && arch-chroot /mnt bash -c 'systemd-cryptenroll --password=\$(cat /tmp/luks_passphrase) ${SELECTED_DISK}1 --fido2-device=auto --fido2-with-client-pin=no' && rm /mnt/tmp/luks_passphrase"
-    execute_step "Configuring crypttab" "echo \"cryptroot UUID=$(blkid -s UUID -o value ${SELECTED_DISK}1) none luks,fido2-device=auto\" >> /mnt/etc/crypttab"
-    execute_step "Configuring initramfs" "sed -i 's/HOOKS=.*/HOOKS=(base udev autodetect keyboard keymap consolefont modconf block lvm2 filesystems fsck)/' /mnt/etc/mkinitcpio.conf && arch-chroot /mnt mkinitcpio -P"
-    execute_step "Installing systemd-boot" "arch-chroot /mnt bootctl --path=/boot install && echo 'title Arch Linux' > /mnt/boot/loader/entries/arch.conf && echo 'linux /vmlinuz-linux-${KERNEL_VERSION}' >> /mnt/boot/loader/entries/arch.conf && echo 'initrd /intel-ucode.img' >> /mnt/boot/loader/entries/arch.conf && echo 'initrd /initramfs-linux.img' >> /mnt/boot/loader/entries/arch.conf && echo 'options cryptdevice=UUID=$(blkid -s UUID -o value ${SELECTED_DISK}1):cryptroot root=/dev/mapper/vg0-root rw' >> /mnt/boot/loader/entries/arch.conf && echo 'default arch.conf' > /mnt/boot/loader/loader.conf && echo 'timeout 3' >> /mnt/boot/loader/loader.conf"
-    execute_step "Setting up Secure Boot" "setup_secure_boot"
-    execute_step "Setting up bootloader password" "setup_bootloader_password"
-    execute_step "Setting root password" "echo -e 'rootpassword\nrootpassword' | arch-chroot /mnt passwd"
-    execute_step "Setting up YubiKey authentication" "setup_yubikey_authentication"
-    execute_step "Setting up YubiKey removal lockdown" "setup_yubikey_removal_lockdown"
-    execute_step "Setting up security modules" "setup_security_modules"
-    execute_step "Setting up network modules" "setup_network_modules"
-    execute_step "Setting up CUDA and optimizations" "setup_cuda_and_optimizations"
-    execute_step "Compiling and installing kernel ${KERNEL_VERSION}" "setup_kernel"
-    execute_step "Setting up post-quantum SSL" "setup_post_quantum_ssl"
-    execute_step "Hardening system" "arch-chroot /mnt bash -c \"echo 'net.ipv4.conf.all.accept_redirects = 0' >> /etc/sysctl.conf && echo 'net.ipv6.conf.all.accept_redirects = 0' >> /etc/sysctl.conf && sysctl -p\""
-    execute_step "Finalizing installation" "umount -R /mnt && swapoff /dev/mapper/vg0-swap && reboot"
+
+    # Execute installation steps with progress bars
+    execute_step_with_progress "Partitioning $SELECTED_DISK" \
+        "echo -e 'g\nn\n\n\n\n8300\nw' | fdisk $SELECTED_DISK" 10
+
+    execute_step_with_progress "Encrypting $SELECTED_DISK with LUKS2" \
+        "cryptsetup --type luks2 --cipher aes-xts-plain64 --key-size 512 --hash sha512 --pbkdf argon2id --iter-time 5000 --key-file \"$PASSFILE\" luksFormat ${SELECTED_DISK}1 && cryptsetup --key-file \"$PASSFILE\" luksOpen ${SELECTED_DISK}1 cryptroot" 300  # 5 minutes for encryption
+
+    execute_step_with_progress "Configuring LVM" \
+        "pvcreate /dev/mapper/cryptroot && vgcreate vg0 /dev/mapper/cryptroot && lvcreate -n root -L 50G vg0 && lvcreate -n home -l 80%FREE vg0 && lvcreate -n swap -L 16G vg0" 30
+
+    execute_step_with_progress "Formatting file systems" \
+        "mkfs.btrfs /dev/mapper/vg0-root && mkfs.btrfs /dev/mapper/vg0-home && mkswap /dev/mapper/vg0-swap && swapon /dev/mapper/vg0-swap" 60
+
+    execute_step_with_progress "Mounting file systems" \
+        "mount /dev/mapper/vg0-root /mnt && btrfs subvolume create /mnt/boot && btrfs subvolume create /mnt/home && mount /dev/mapper/vg0-home /mnt/home" 10
+
+    execute_step_with_progress "Installing base system" \
+        "pacstrap /mnt base linux linux-firmware intel-ucode sbsign cryptsetup lvm2 btrfs-progs" 300  # 5 minutes for package installation
+
+    execute_step_with_progress "Updating system" \
+        "arch-chroot /mnt pacman -Syu --noconfirm" 300  # 5 minutes for system update
+
+    execute_step_with_progress "Generating fstab" \
+        "genfstab -U /mnt >> /mnt/etc/fstab" 5
+
+    execute_step_with_progress "Configuring system" \
+        "arch-chroot /mnt bash -c \"echo 'archsecure' > /etc/hostname && echo '127.0.0.1 localhost' >> /etc/hosts && echo '::1 localhost' >> /etc/hosts && echo '127.0.1.1 archsecure.localdomain archsecure' >> /etc/hosts\"" 10
+
+    execute_step_with_progress "Installing additional tools" \
+        "arch-chroot /mnt pacman -S --noconfirm yubikey-manager nano iptables" 60
+
+    execute_step_with_progress "Validating YubiKey" \
+        "validate_yubikey" 10
+
+    execute_step_with_progress "Enrolling YubiKey" \
+        "cp \"$PASSFILE\" /mnt/tmp/luks_passphrase && arch-chroot /mnt bash -c 'systemd-cryptenroll --password=\$(cat /tmp/luks_passphrase) ${SELECTED_DISK}1 --fido2-device=auto --fido2-with-client-pin=no' && rm /mnt/tmp/luks_passphrase" 30
+
+    execute_step_with_progress "Configuring crypttab" \
+        "echo \"cryptroot UUID=$(blkid -s UUID -o value ${SELECTED_DISK}1) none luks,fido2-device=auto\" >> /mnt/etc/crypttab" 5
+
+    execute_step_with_progress "Configuring initramfs" \
+        "sed -i 's/HOOKS=.*/HOOKS=(base udev autodetect keyboard keymap consolefont modconf block lvm2 filesystems fsck)/' /mnt/etc/mkinitcpio.conf && arch-chroot /mnt mkinitcpio -P" 30
+
+    execute_step_with_progress "Installing systemd-boot" \
+        "arch-chroot /mnt bootctl --path=/boot install && echo 'title Arch Linux' > /mnt/boot/loader/entries/arch.conf && echo 'linux /vmlinuz-linux-${KERNEL_VERSION}' >> /mnt/boot/loader/entries/arch.conf && echo 'initrd /intel-ucode.img' >> /mnt/boot/loader/entries/arch.conf && echo 'initrd /initramfs-linux.img' >> /mnt/boot/loader/entries/arch.conf && echo 'options cryptdevice=UUID=$(blkid -s UUID -o value ${SELECTED_DISK}1):cryptroot root=/dev/mapper/vg0-root rw' >> /mnt/boot/loader/entries/arch.conf && echo 'default arch.conf' > /mnt/boot/loader/loader.conf && echo 'timeout 3' >> /mnt/boot/loader/loader.conf" 10
+
+    execute_step_with_progress "Setting up Secure Boot" \
+        "setup_secure_boot" 60
+
+    execute_step_with_progress "Setting up bootloader password" \
+        "setup_bootloader_password" 30
+
+    execute_step_with_progress "Setting root password" \
+        "echo -e 'rootpassword\nrootpassword' | arch-chroot /mnt passwd" 5
+
+    execute_step_with_progress "Setting up YubiKey authentication" \
+        "setup_yubikey_authentication" 60
+
+    execute_step_with_progress "Setting up YubiKey removal lockdown" \
+        "setup_yubikey_removal_lockdown" 30
+
+    execute_step_with_progress "Setting up security modules" \
+        "setup_security_modules" 60
+
+    execute_step_with_progress "Setting up network modules" \
+        "setup_network_modules" 120  # 2 minutes for network setup
+
+    execute_step_with_progress "Setting up CUDA and optimizations" \
+        "setup_cuda_and_optimizations" 300  # 5 minutes for CUDA installation
+
+    execute_step_with_progress "Compiling and installing kernel ${KERNEL_VERSION}" \
+        "setup_kernel" 600  # 10 minutes for kernel compilation
+
+    execute_step_with_progress "Setting up post-quantum SSL" \
+        "setup_post_quantum_ssl" 120  # 2 minutes for SSL setup
+
+    execute_step_with_progress "Hardening system" \
+        "arch-chroot /mnt bash -c \"echo 'net.ipv4.conf.all.accept_redirects = 0' >> /etc/sysctl.conf && echo 'net.ipv6.conf.all.accept_redirects = 0' >> /etc/sysctl.conf && sysctl -p\"" 10
+
+    execute_step_with_progress "Finalizing installation" \
+        "umount -R /mnt && swapoff /dev/mapper/vg0-swap && reboot" 10
+
+    # Clean up
     rm -f "$PASSFILE"
+
     log_message "${GREEN}Installation complete! Enroll Secure Boot keys in BIOS, insert YubiKey, and touch it at boot to unlock.${NC}"
+    whiptail --msgbox "Installation complete!\n\nEnroll Secure Boot keys in your BIOS:\n- Platform Key (PK): /root/secureboot/PK.crt\n- Key Exchange Key (KEK): /root/secureboot/KEK.crt\n- Signature Database (db): /root/secureboot/db.crt\n\nInsert your YubiKey and touch it at boot to unlock the disk." 20 70
 }
 
 # Trap to ensure cleanup on exit
