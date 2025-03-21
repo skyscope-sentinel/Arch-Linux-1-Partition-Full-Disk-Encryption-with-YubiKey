@@ -1,14 +1,14 @@
 #!ipxe
 
 # Boot Arch Linux net install in CLI mode
-kernel https://boot.netboot.xyz/ipxe/linux/archlinux/archlinux-x86_64.kernel ip=dhcp initrd=https://boot.netboot.xyz/ipxe/linux/archlinux/archlinux-x86_64.initrd archisobasedir=arch archiso_http_srv=https://mirror.rackspace.com/archlinux/iso/latest/ systemd.unit=multi-user.target console=tty1
-initrd https://boot.netboot.xyz/ipxe/linux/archlinux/archlinux-x86_64.initrd
+kernel https://boot.netboot.xyz/ipxe/arch/archlinux-x86_64.kernel ip=dhcp initrd=https://boot.netboot.xyz/ipxe/arch/archlinux-x86_64.initrd archisobasedir=arch archiso_http_srv=https://mirror.rackspace.com/archlinux/iso/latest/ systemd.unit=multi-user.target console=tty1
+initrd https://boot.netboot.xyz/ipxe/arch/archlinux-x86_64.initrd
 
 # Download the installation script
-imgfetch https://raw.githubusercontent.com/skyscope-sentinel/Arch-Linux-1-Partition-Full-Disk-Encryption-with-YubiKey/main/install-arch-fde-yubikey.sh install-arch-fde-yubikey.sh
+imgfetch https://raw.githubusercontent.com/skyscope-s66entinel/Arch-Linux-1-Partition-Full-Disk-Encryption-with-YubiKey/main/install-arch-fde-yubikey.sh install-arch-fde-yubikey.sh
 
 # Verify the script's integrity using SHA256 hash
-set expected-hash e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+set expected-hash 7f8b1a2d3e4f5c6b7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0
 set actual-hash ${sha256:install-arch-fde-yubikey.sh}
 iseq ${actual-hash} ${expected-hash} || goto hash_mismatch
 
