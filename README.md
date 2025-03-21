@@ -2,6 +2,13 @@
 
 This repository provides a detailed guide and an automated Bash script for installing Arch Linux with full disk encryption (FDE) using a single encrypted partition, unlocked via a YubiKey with FIDO2 touch authentication. The setup leverages LUKS2, Btrfs, Argon2id PBKDF, and Serpent XTS cipher for maximum security, tailored for modern hardware with Ethernet-only connectivity.
 
+### [ UPDATE MARCH 22 2025 ] You can now directly boot up with our security solution script using a bootable netboot.xyz ISO or IMG from USB. 
+
+     '''bash
+     chain https://raw.githubusercontent.com/skyscope-sentinel/Arch-Linux-1-Partition-Full-Disk-Encryption-with-YubiKey/main/arch-auto-install.ipxe
+
+### Simply boot into netboot.xyz , hit the m keyboard key, type in dhcp, wait for network to establish,  and enter the command.
+
 ## Features
 - **Single Partition FDE**: Entire disk encrypted under one LUKS2 container, including `/boot`.
 - **YubiKey Unlock**: Uses FIDO2 for touch-only decryption, no modification to existing YubiKey configuration.
