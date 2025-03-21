@@ -65,13 +65,13 @@ log_message() {
 }
 
 # Function to check script integrity
-check_integrity() {
-    local current_hash=$(sha256sum "$0" | awk '{print $1}')
-    if [[ "$current_hash" != "$SCRIPT_HASH" ]]; then
-        log_message "${RED}ERROR: Script has been tampered with! Aborting.${NC}"
-        exit 1
-    fi
-}
+#check_integrity() {
+#    local current_hash=$(sha256sum "$0" | awk '{print $1}')
+#    if [[ "$current_hash" != "$SCRIPT_HASH" ]]; then
+#        log_message "${RED}ERROR: Script has been tampered with! Aborting.${NC}"
+#        exit 1
+#    fi
+#}
 
 # Function to display header
 display_header() {
