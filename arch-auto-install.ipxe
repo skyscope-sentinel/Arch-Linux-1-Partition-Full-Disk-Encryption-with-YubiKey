@@ -1,28 +1,4 @@
 #!ipxe
 
-# Boot Arch Linux net install in CLI mode
-kernel https://boot.netboot.xyz/arch/vmlinuz-linux ip=dhcp initrd=https://boot.netboot.xyz/arch/initramfs-linux.img archisobasedir=arch archiso_http_srv=https://mirror.rackspace.com/archlinux/iso/latest/ systemd.unit=multi-user.target console=tty1
-initrd https://boot.netboot.xyz/arch/initramfs-linux.img
-
-# Download the installation script
-imgfetch https://raw.githubusercontent.com/skyscope-sentinel/Arch-Linux-1-Partition-Full-Disk-Encryption-with-YubiKey/main/install-arch-fde-yubikey.sh install-arch-fde-yubikey.sh
-
-# Verify the script's integrity using SHA256 hash
-set expected-hash 7f8b1a2d3e4f5c6b7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0
-set actual-hash ${sha256:install-arch-fde-yubikey.sh}
-iseq ${actual-hash} ${expected-hash} || goto hash_mismatch
-
-# Make the script executable and run it
-chmod +x install-arch-fde-yubikey.sh
-./install-arch-fde-yubikey.sh
-goto end
-
-:hash_mismatch
-echo Hash mismatch! Possible tampering detected. Aborting.
-sleep 10
-halt
-
-:end
-echo Installation script executed. System will halt.
-sleep 10
-halt
+# Boot Arch Linux net install in CLI mode and run the installer script
+kernel https://boot.netboot.xyz/arch/vmlinuz-linux ip=dhcp initrd=https://boot.netboot.xyz/arch/initramfs-linux.img archisobasedir=arch archiso_http_srv=https://mirror.rackspace.com/archlinux/iso/latest/ systemd.unit=multi-user.target console=tty1 -- bash -c "curl -s https://raw.githubusercontent.com/skyscope-sentinel/Arch-Linux-1-Partition-Full-Disk-Encryption-with-YubiKey/main/install-arch-fde-yubikey.sh -o install-arch-fde-yubikey.sh && echo -n 'Verifying hash...' && [ \$(sha256sum install-arch-fde-yubikey.sh | awk '{print \$1}') = '7f8b1a2d3
